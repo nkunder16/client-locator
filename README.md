@@ -44,17 +44,28 @@ cp .env.local.example .env.local
 
 Make a Google Sheet with these **exact column headers** in row 1:
 
-| Name | Type | City | Country | Priority | Last Met | Coverage | Notes |
-|---|---|---|---|---|---|---|---|
-| Sequoia Capital | Fund | Menlo Park | United States | High | 2025-11-01 | Jane Smith | Tiger cub |
-| Goldman Sachs | Company | New York | United States | Medium | 2025-06-15 | John Doe | BB coverage |
-| Vanguard | Fund | Malvern | United States | Low | | | Index fund |
+| Name | Type | City | Country | Address | Priority | Last Met | Coverage | Notes |
+|---|---|---|---|---|---|---|---|---|
+| Sequoia Capital | Fund | Menlo Park | United States | 2800 Sand Hill Rd, Menlo Park, CA | High | 2025-11-01 | Jane Smith | Tiger cub |
+| Goldman Sachs | Company | New York | United States | 200 West St, New York, NY 10282 | Medium | 2025-06-15 | John Doe | BB coverage |
+| Vanguard | Fund | Malvern | United States | | Low | | | Index fund |
 
 Column rules:
 - **Type**: exactly `Fund` or `Company` (case-sensitive)
+- **Address** *(optional)*: full street address. When present, geocoding uses this for pin-point accuracy instead of City + Country. Leave blank for city-level precision.
 - **Priority**: `High`, `Medium`, or `Low` (defaults to `Low` if blank)
 - **Last Met**: any date format — `YYYY-MM-DD`, `DD/MM/YYYY`, `Nov 1 2025`, etc.
 - **Coverage**, **Notes**: free text, optional
+
+### Google Maps API key (for address geocoding)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a project → **APIs & Services** → **Enable APIs** → enable **Geocoding API**
+3. **Credentials** → **Create credentials** → **API key**
+4. Restrict the key to *Geocoding API* server calls (no HTTP referrer restriction needed for server-side use)
+5. Add to `.env.local` as `GOOGLE_MAPS_API_KEY=...`
+
+> If you only have OpenCage configured, address geocoding still works — OpenCage handles full addresses too. Google Maps is preferred for higher accuracy on street-level lookups.
 
 #### 3b. Make the sheet public
 

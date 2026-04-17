@@ -58,11 +58,12 @@ export function meetingPlanScore(client: Client): number {
 }
 
 export function exportToCSV(clients: Client[]): void {
-  const headers = ['Name', 'Type', 'Priority', 'City', 'Country', 'Distance (km)', 'Last Met', 'Coverage', 'Notes'];
+  const headers = ['Name', 'Type', 'Priority', 'Address', 'City', 'Country', 'Distance (km)', 'Last Met', 'Coverage', 'Notes'];
   const rows = clients.map((c) => [
     c.name,
     c.type,
     c.priority,
+    c.address,
     c.city,
     c.country,
     c.distance?.toFixed(1) ?? '',

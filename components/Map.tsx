@@ -49,6 +49,7 @@ function buildGeoJSON(clients: Client[]): GeoJSON.FeatureCollection {
           priority: c.priority,
           city: c.city,
           country: c.country,
+          address: c.address,
           notes: c.notes,
           coverage: c.coverage,
           lastMet: c.lastMet,
@@ -75,21 +76,37 @@ function buildPopupHTML(props: Record<string, unknown>): string {
   };
   const lastMetStr = formatLastMet(props.lastMet ? String(props.lastMet) : null);
   const dist = props.distance != null ? `${Number(props.distance).toFixed(0)} km away` : '';
+  const address = props.address ? String(props.address) : '';
+  // Prefer the precise address for the Maps link; fall back to "Name, City, Country"
+  const mapsQuery = address || `${props.name}, ${props.city}, ${props.country}`;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
 
   return `
-    <div class="p-3 min-w-[200px] max-w-[260px]">
+    <div class="p-3 min-w-[210px] max-w-[280px]">
       <p class="font-semibold text-slate-800 text-sm leading-snug">${props.name}</p>
       <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
         <span class="text-xs px-2 py-0.5 rounded-full font-medium ${typeBadge}">${props.type}</span>
         <span class="text-xs px-2 py-0.5 rounded-full font-medium ${priorityBadge[priority]}">${priority}</span>
       </div>
-      <p class="text-xs text-slate-500 mt-1.5">${props.city}, ${props.country}</p>
+      ${address
+        ? `<p class="text-xs text-slate-600 mt-1.5 leading-snug">${address}</p>
+           <p class="text-xs text-slate-400 mt-0.5">${props.city}, ${props.country}</p>`
+        : `<p class="text-xs text-slate-500 mt-1.5">${props.city}, ${props.country}</p>`
+      }
       ${props.coverage ? `<p class="text-xs text-slate-400 mt-0.5">Coverage: ${props.coverage}</p>` : ''}
       <div class="flex items-center justify-between mt-1.5 pt-1.5 border-t border-slate-100">
         <span class="text-xs text-slate-400">Last met: ${lastMetStr}</span>
         ${dist ? `<span class="text-xs text-slate-400">${dist}</span>` : ''}
       </div>
       ${props.notes ? `<p class="text-xs text-slate-400 mt-1 italic">${props.notes}</p>` : ''}
+      <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer"
+         class="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+        </svg>
+        Open in Google Maps
+      </a>
     </div>
   `;
 }

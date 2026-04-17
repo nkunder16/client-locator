@@ -6,6 +6,7 @@ export interface RawClient {
   type: string;
   city: string;
   country: string;
+  address?: string;
   notes?: string;
   priority?: string;
   'last met'?: string; // PapaParse lowercases headers with spaces
@@ -20,6 +21,7 @@ export interface Client {
   type: ClientType;
   city: string;
   country: string;
+  address: string; // full street address (optional in sheet, empty string if absent)
   notes: string;
   priority: Priority;
   lastMet: string | null; // ISO date string YYYY-MM-DD or null

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowUpDown, TrendingUp, Building2, MapPin } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowUpDown, TrendingUp, Building2, MapPin, ExternalLink } from 'lucide-react';
 import { Client, Priority } from '@/lib/types';
 import { formatLastMet } from '@/lib/utils';
 
@@ -160,9 +160,29 @@ export default function ClientList({
                   </span>
                 )}
               </div>
-              <p className="text-[10px] text-slate-400 mt-0.5 truncate">
-                {client.city}, {client.country}
-              </p>
+              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                <p
+                  className={`text-[10px] truncate ${client.address ? 'text-slate-500' : 'text-slate-400'}`}
+                  title={client.address || `${client.city}, ${client.country}`}
+                >
+                  {client.address || `${client.city}, ${client.country}`}
+                </p>
+                <button
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    const query = client.address || `${client.name}, ${client.city}, ${client.country}`;
+                    window.open(
+                      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
+                      '_blank',
+                      'noopener,noreferrer',
+                    );
+                  }}
+                  title="Open in Google Maps"
+                  className="text-slate-300 hover:text-blue-500 transition-colors shrink-0"
+                >
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </button>
+              </div>
             </div>
 
             {/* Last Met */}
