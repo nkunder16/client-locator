@@ -1,24 +1,13 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import dynamic from 'next/dynamic';
+import { useState, useMemo, useCallback } from 'react';
 import useSWR from 'swr';
-import { Client, ClientType, SearchCenter } from '@/lib/types';
-import { haversineDistance, smartSort, exportToCSV } from '@/lib/utils';
-import SearchBar from '@/components/SearchBar';
-import Filters from '@/components/Filters';
+import { Client, ClientType } from '@/lib/types';
+import { exportToCSV, todayDDMMYYYY } from '@/lib/utils';
 import ClientList from '@/components/ClientList';
 import MeetingPlanner from '@/components/MeetingPlanner';
-import { RefreshCw, Download, AlertCircle, CalendarDays, X, Star } from 'lucide-react';
-
-const Map = dynamic(() => import('@/components/Map'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-full bg-slate-100">
-      <div className="text-slate-400 text-sm">Loading map…</div>
-    </div>
-  ),
-});
+import AddClientModal from '@/components/AddClientModal';
+import { RefreshCw, Download, AlertCircle, CalendarDays, X, Plus } from 'lucide-react';
 
 const fetcher = (url: string) =>
   fetch(url).then((res) => {
@@ -26,29 +15,15 @@ const fetcher = (url: string) =>
     return res.json();
   });
 
-const CITY_RADIUS_KM = 30;
-
 export default function Home() {
-  // ── Search state ───────────────────────────────────────────────────────────
-  const [searchCenters, setSearchCenters] = useState<SearchCenter[]>([]);
-  const [tripMode, setTripMode] = useState(false);
-  const [radius, setRadius] = useState(0);
-
   // ── Filter state ───────────────────────────────────────────────────────────
+  const [cityFilter, setCityFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<'All' | ClientType>('All');
   const [highPriorityOnly, setHighPriorityOnly] = useState(false);
 
   // ── UI state ───────────────────────────────────────────────────────────────
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [favoriteCities, setFavoriteCities] = useState<SearchCenter[]>([]);
   const [plannerOpen, setPlannerOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('favoriteCities');
-      if (stored) setFavoriteCities(JSON.parse(stored));
-    } catch {}
-  }, []);
+  const [addClientOpen, setAddClientOpen] = useState(false);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data: allClients = [], isLoading, error, mutate } = useSWR<Client[]>(
@@ -57,83 +32,49 @@ export default function Home() {
     { refreshInterval: 5 * 60 * 1000 },
   );
 
-  // ── Derived: filtered + sorted clients ────────────────────────────────────
+  // ── Unique cities for datalist ─────────────────────────────────────────────
+  const uniqueCities = useMemo(
+    () => Array.from(new Set(allClients.map((c) => c.city).filter(Boolean))).sort(),
+    [allClients],
+  );
+
+  // ── Filtered clients (client-side, instant) ────────────────────────────────
   const filteredClients = useMemo<Client[]>(() => {
-    if (searchCenters.length === 0) return [];
-    const effectiveRadius = radius === 0 ? CITY_RADIUS_KM : radius;
+    const cityLower = cityFilter.trim().toLowerCase();
+    return allClients.filter((c) => {
+      if (cityLower && !c.city.toLowerCase().includes(cityLower)) return false;
+      if (typeFilter !== 'All' && c.type !== typeFilter) return false;
+      if (highPriorityOnly && c.priority !== 'High') return false;
+      return true;
+    });
+  }, [allClients, cityFilter, typeFilter, highPriorityOnly]);
 
-    const withDistance = allClients
-      .filter((c) => c.coordinates !== null)
-      .map((c) => {
-        const distances = searchCenters.map((sc) =>
-          haversineDistance(sc.coordinates, c.coordinates!),
-        );
-        return { ...c, distance: Math.min(...distances) };
-      })
-      .filter((c) => {
-        const inRange = c.distance <= effectiveRadius;
-        const typeOk = typeFilter === 'All' || c.type === typeFilter;
-        return inRange && typeOk;
-      });
+  const hasActiveFilters = cityFilter.trim() !== '' || typeFilter !== 'All' || highPriorityOnly;
 
-    return smartSort(withDistance);
-  }, [allClients, searchCenters, radius, typeFilter]);
-
-  // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleSearch = useCallback(
-    (center: SearchCenter) => {
-      setSearchCenters((prev) => {
-        if (tripMode) {
-          if (prev.some((c) => c.city === center.city && c.country === center.country))
-            return prev;
-          return [...prev, center];
-        }
-        return [center];
-      });
-      setSelectedClientId(null);
-    },
-    [tripMode],
-  );
-
-  const removeCity = useCallback((city: string) => {
-    setSearchCenters((prev) => prev.filter((c) => c.city !== city));
+  const clearFilters = useCallback(() => {
+    setCityFilter('');
+    setTypeFilter('All');
+    setHighPriorityOnly(false);
   }, []);
-
-  const handleClientSelect = useCallback((client: Client) => {
-    setSelectedClientId(client.id);
-  }, []);
-
-  const handleAddFavorite = useCallback(
-    (center: SearchCenter) => {
-      setFavoriteCities((prev) => {
-        if (prev.some((f) => f.city === center.city && f.country === center.country)) return prev;
-        const updated = [...prev, center].slice(-8);
-        localStorage.setItem('favoriteCities', JSON.stringify(updated));
-        return updated;
-      });
-    },
-    [],
-  );
 
   const handleRefresh = useCallback(() => {
     mutate(fetcher('/api/clients?bust=1'), { revalidate: false });
   }, [mutate]);
 
-  const handleTripModeToggle = useCallback((on: boolean) => {
-    setTripMode(on);
-    if (!on && searchCenters.length > 1) {
-      // Keep only the first city when leaving trip mode
-      setSearchCenters((prev) => prev.slice(0, 1));
+  // ── Met Today ──────────────────────────────────────────────────────────────
+  const handleMetToday = useCallback(async (client: Client) => {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: client.name, updates: { lastMet: todayDDMMYYYY() } }),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error ?? `Update failed (${res.status})`);
     }
-  }, [searchCenters.length]);
-
-  // ── Map clients: all (world view) or filtered ─────────────────────────────
-  const mapClients = searchCenters.length > 0
-    ? filteredClients
-    : allClients.filter((c) => c.coordinates);
-
-  // ── City chips label for planner ──────────────────────────────────────────
-  const cityLabel = searchCenters.map((c) => c.city).join(' · ') || 'All Cities';
+    // Force re-fetch so the list reflects the new date
+    await mutate(fetcher('/api/clients?bust=1'), { revalidate: false });
+  }, [mutate]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
@@ -149,13 +90,22 @@ export default function Home() {
               : `${allClients.length} clients · Investment Banking`}
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAddClientOpen(true)}
+            className="flex items-center gap-1.5 text-xs bg-blue-500 hover:bg-blue-400 text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Client
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -165,147 +115,114 @@ export default function Home() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Left Sidebar ── */}
-        <aside className="w-96 flex flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden">
-          {/* Search + Filters */}
-          <div className="p-4 space-y-3 border-b border-slate-100">
-            <SearchBar
-              onSearch={handleSearch}
-              favoriteCities={favoriteCities}
-              onAddFavorite={() => {
-                if (searchCenters[searchCenters.length - 1])
-                  handleAddFavorite(searchCenters[searchCenters.length - 1]);
-              }}
-              currentCity={searchCenters[searchCenters.length - 1]?.displayName}
-            />
+      {/* ── Filter bar ── */}
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-white border-b border-slate-200 shrink-0 flex-wrap">
+        {/* City search */}
+        <div className="relative">
+          <input
+            list="city-options"
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            placeholder="Filter by city…"
+            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 w-52 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <datalist id="city-options">
+            {uniqueCities.map((city) => (
+              <option key={city} value={city} />
+            ))}
+          </datalist>
+        </div>
 
-            {/* Trip mode city chips */}
-            {searchCenters.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {searchCenters.map((sc) => (
-                  <span
-                    key={sc.city + sc.country}
-                    className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium ${
-                      tripMode
-                        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    {sc.city}
-                    {tripMode && (
-                      <button
-                        onClick={() => removeCity(sc.city)}
-                        className="text-blue-400 hover:text-blue-700 ml-0.5"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                    {!tripMode && (
-                      <button
-                        onClick={() => handleAddFavorite(sc)}
-                        className="text-slate-400 hover:text-amber-500 ml-0.5"
-                        title="Save to favourites"
-                      >
-                        <Star className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-            )}
+        {/* Type toggle */}
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+          {(['All', 'Fund', 'Company'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`px-3 py-1.5 transition-colors ${
+                typeFilter === t
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
-            <Filters
-              typeFilter={typeFilter}
-              onTypeChange={setTypeFilter}
-              radius={radius}
-              onRadiusChange={setRadius}
-              highPriorityOnly={highPriorityOnly}
-              onHighPriorityToggle={setHighPriorityOnly}
-              tripMode={tripMode}
-              onTripModeToggle={handleTripModeToggle}
-            />
-          </div>
+        {/* High priority toggle */}
+        <button
+          onClick={() => setHighPriorityOnly((p) => !p)}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
+            highPriorityOnly
+              ? 'bg-red-50 text-red-700 border-red-200'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          High priority only
+        </button>
 
-          {/* Result summary */}
-          {searchCenters.length > 0 && (
-            <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-600 shrink-0">
-              <span className="font-semibold text-slate-800">{filteredClients.length}</span>{' '}
-              client{filteredClients.length !== 1 ? 's' : ''}{' '}
-              {radius > 0 ? <>within <span className="font-medium">{radius} km</span> of </> : 'in '}
-              <span className="font-medium">{cityLabel}</span>
-            </div>
-          )}
+        {/* Clear filters */}
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear filters
+          </button>
+        )}
 
-          {/* List */}
-          <div className="flex-1 overflow-y-auto">
-            <ClientList
-              clients={filteredClients}
-              selectedClientId={selectedClientId}
-              onClientSelect={handleClientSelect}
-              isLoading={isLoading && allClients.length === 0}
-              highPriorityOnly={highPriorityOnly}
-            />
-          </div>
-
-          {/* Footer actions */}
+        {/* Spacer + stats + actions */}
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-800">{filteredClients.length}</span>
+            {hasActiveFilters && ` of ${allClients.length}`} clients
+          </span>
           {filteredClients.length > 0 && (
-            <div className="p-3 border-t border-slate-100 shrink-0 flex gap-2">
+            <>
               <button
                 onClick={() => setPlannerOpen(true)}
-                className="flex-1 flex items-center justify-center gap-2 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 font-medium transition-colors"
+                className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 font-medium transition-colors"
               >
                 <CalendarDays className="h-3.5 w-3.5" />
                 Meeting Plan
               </button>
               <button
                 onClick={() => exportToCSV(filteredClients)}
-                className="flex-1 flex items-center justify-center gap-2 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:border-slate-300 rounded-lg py-2 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-colors"
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
               </button>
-            </div>
+            </>
           )}
-        </aside>
-
-        {/* ── Map ── */}
-        <main className="flex-1 relative">
-          {searchCenters.length === 0 && !isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl px-8 py-6 shadow-xl text-center max-w-xs">
-                <div className="text-3xl mb-3">🗺️</div>
-                <h2 className="font-semibold text-slate-800 text-lg">Search a City</h2>
-                <p className="text-slate-500 text-sm mt-1">
-                  {tripMode
-                    ? 'Add multiple cities to plan a trip across locations.'
-                    : 'Enter a city to find nearby clients on the map.'}
-                </p>
-                {allClients.length > 0 && (
-                  <p className="text-slate-400 text-xs mt-3">
-                    {allClients.length} clients loaded
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <Map
-            clients={mapClients}
-            searchCenters={searchCenters}
-            radius={radius}
-            selectedClientId={selectedClientId}
-            onClientSelect={handleClientSelect}
-          />
-        </main>
+        </div>
       </div>
+
+      {/* ── Full-width list ── */}
+      <main className="flex-1 overflow-y-auto">
+        <ClientList
+          clients={filteredClients}
+          isLoading={isLoading && allClients.length === 0}
+          onMetToday={handleMetToday}
+        />
+      </main>
 
       {/* ── Meeting Planner Modal ── */}
       {plannerOpen && (
         <MeetingPlanner
           clients={filteredClients}
-          cityLabel={cityLabel}
+          cityLabel={cityFilter.trim() || 'All Cities'}
           onClose={() => setPlannerOpen(false)}
+        />
+      )}
+
+      {/* ── Add Client Modal ── */}
+      {addClientOpen && (
+        <AddClientModal
+          onClose={() => setAddClientOpen(false)}
+          onAdded={() => mutate(fetcher('/api/clients?bust=1'), { revalidate: false })}
         />
       )}
     </div>

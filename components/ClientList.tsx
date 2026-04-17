@@ -1,27 +1,22 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ArrowUpDown, TrendingUp, Building2, MapPin, ExternalLink } from 'lucide-react';
+import {
+  ArrowUpDown, TrendingUp, Building2, ChevronDown, ChevronRight,
+  ExternalLink, CalendarCheck, Search, Check, Loader2,
+} from 'lucide-react';
 import { Client, Priority } from '@/lib/types';
 import { formatLastMet } from '@/lib/utils';
 
-type SortKey = 'name' | 'type' | 'city' | 'distance' | 'priority' | 'lastMet';
+type SortKey = 'name' | 'type' | 'city' | 'priority' | 'lastMet' | 'coverage';
 
 interface ClientListProps {
   clients: Client[];
-  selectedClientId: string | null;
-  onClientSelect: (client: Client) => void;
   isLoading: boolean;
-  highPriorityOnly: boolean;
+  onMetToday: (client: Client) => Promise<void>;
 }
 
 const PRIORITY_RANK: Record<Priority, number> = { High: 0, Medium: 1, Low: 2 };
-
-const PRIORITY_DOT: Record<Priority, string> = {
-  High: 'bg-red-500',
-  Medium: 'bg-orange-400',
-  Low: 'bg-slate-300',
-};
 
 const PRIORITY_BADGE: Record<Priority, string> = {
   High: 'bg-red-50 text-red-700 ring-1 ring-red-200',
@@ -29,39 +24,62 @@ const PRIORITY_BADGE: Record<Priority, string> = {
   Low: 'bg-slate-50 text-slate-500 ring-1 ring-slate-200',
 };
 
-export default function ClientList({
-  clients,
-  selectedClientId,
-  onClientSelect,
-  isLoading,
-  highPriorityOnly,
-}: ClientListProps) {
+export default function ClientList({ clients, isLoading, onMetToday }: ClientListProps) {
   const [sortKey, setSortKey] = useState<SortKey>('priority');
   const [sortAsc, setSortAsc] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loadingIds, setLoadingIds] = useState(new Set<string>());
+  const [successIds, setSuccessIds] = useState(new Set<string>());
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc((a) => !a);
     else { setSortKey(key); setSortAsc(true); }
   };
 
-  const visible = highPriorityOnly ? clients.filter((c) => c.priority === 'High') : clients;
+  const handleMetToday = async (client: Client, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loadingIds.has(client.id)) return;
+    setLoadingIds((prev) => new Set(prev).add(client.id));
+    try {
+      await onMetToday(client);
+      setSuccessIds((prev) => new Set(prev).add(client.id));
+      setTimeout(() => {
+        setSuccessIds((prev) => { const s = new Set(prev); s.delete(client.id); return s; });
+      }, 2000);
+    } finally {
+      setLoadingIds((prev) => { const s = new Set(prev); s.delete(client.id); return s; });
+    }
+  };
 
-  const sorted = [...visible].sort((a: Client, b: Client) => {
+  const handleGoogleSearch = (client: Client, e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.open(
+      `https://www.google.com/search?q=${encodeURIComponent(client.name)}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+  };
+
+  const sorted = [...clients].sort((a: Client, b: Client) => {
     let cmp = 0;
     if (sortKey === 'priority') {
       cmp = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-    } else if (sortKey === 'distance') {
-      cmp = (a.distance ?? Infinity) - (b.distance ?? Infinity);
-    } else if (sortKey === 'lastMet') {
+      if (cmp !== 0) return sortAsc ? cmp : -cmp;
+      // Tiebreak by Last Met: oldest first, nulls at bottom
+      if (!a.lastMet && !b.lastMet) return 0;
+      if (!a.lastMet) return 1;
+      if (!b.lastMet) return -1;
+      return new Date(a.lastMet).getTime() - new Date(b.lastMet).getTime();
+    }
+    if (sortKey === 'lastMet') {
+      // Nulls at bottom
       if (!a.lastMet && !b.lastMet) cmp = 0;
-      else if (!a.lastMet) cmp = -1;
-      else if (!b.lastMet) cmp = 1;
+      else if (!a.lastMet) cmp = 1;
+      else if (!b.lastMet) cmp = -1;
       else cmp = new Date(a.lastMet).getTime() - new Date(b.lastMet).getTime();
     } else {
-      const ra = a as unknown as Record<string, unknown>;
-      const rb = b as unknown as Record<string, unknown>;
-      const av = String(ra[sortKey] ?? '').toLowerCase();
-      const bv = String(rb[sortKey] ?? '').toLowerCase();
+      const av = String((a as unknown as Record<string, unknown>)[sortKey] ?? '').toLowerCase();
+      const bv = String((b as unknown as Record<string, unknown>)[sortKey] ?? '').toLowerCase();
       cmp = av < bv ? -1 : av > bv ? 1 : 0;
     }
     return sortAsc ? cmp : -cmp;
@@ -77,126 +95,178 @@ export default function ClientList({
 
   if (clients.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-40 text-slate-400 text-sm gap-2">
-        <MapPin className="h-6 w-6 opacity-40" />
-        <span>Search a city to see clients</span>
-      </div>
-    );
-  }
-
-  if (visible.length === 0) {
-    return (
       <div className="flex flex-col items-center justify-center h-40 text-slate-400 text-sm gap-1">
-        <span className="font-medium">No high-priority clients here</span>
-        <span className="text-xs">Turn off the filter to see all {clients.length}</span>
+        <span className="font-medium">No clients match your filters</span>
       </div>
     );
   }
 
-  const Th = ({ label, field }: { label: string; field: SortKey }) => (
-    <button
-      onClick={() => toggleSort(field)}
-      className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-        sortKey === field ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'
-      }`}
-    >
-      {label}
-      <ArrowUpDown className="h-2.5 w-2.5 opacity-70" />
-    </button>
+  const Th = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
+    <th className={`px-3 py-2 text-left ${className}`}>
+      <button
+        onClick={() => toggleSort(field)}
+        className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+          sortKey === field ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'
+        }`}
+      >
+        {label}
+        <ArrowUpDown className="h-2.5 w-2.5 opacity-70" />
+      </button>
+    </th>
   );
 
   return (
-    <div className="divide-y divide-slate-50">
-      {/* Sticky header */}
-      <div className="grid grid-cols-[12px_1fr_62px_44px] gap-x-2 px-4 py-2 bg-slate-50 sticky top-0 z-10 border-b border-slate-100">
-        <Th label="" field="priority" />
-        <Th label="Name" field="name" />
-        <Th label="Last Met" field="lastMet" />
-        <Th label="Dist." field="distance" />
-      </div>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+          <tr>
+            <th className="w-6 px-3 py-2" />
+            <Th label="Name" field="name" className="min-w-[180px]" />
+            <Th label="Type" field="type" className="w-24" />
+            <Th label="City" field="city" className="min-w-[120px]" />
+            <Th label="Priority" field="priority" className="w-24" />
+            <Th label="Last Met" field="lastMet" className="w-24" />
+            <Th label="Coverage" field="coverage" className="min-w-[120px]" />
+            <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 text-right w-32">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {sorted.map((client) => {
+            const isFund = client.type === 'Fund';
+            const isExpanded = expandedId === client.id;
+            const isMetLoading = loadingIds.has(client.id);
+            const isMetSuccess = successIds.has(client.id);
 
-      {sorted.map((client) => {
-        const isFund = client.type === 'Fund';
-        const isSelected = client.id === selectedClientId;
-
-        return (
-          <button
-            key={client.id}
-            onClick={() => onClientSelect(client)}
-            className={[
-              'w-full grid grid-cols-[12px_1fr_62px_44px] gap-x-2 px-4 py-2.5 text-left',
-              'hover:bg-blue-50 transition-colors',
-              isSelected ? 'bg-blue-50 border-l-[3px] border-l-blue-500 pl-[13px]' : '',
-            ].join(' ')}
-          >
-            {/* Priority dot */}
-            <div className="flex items-center pt-1">
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${PRIORITY_DOT[client.priority]}`}
-                title={client.priority}
-              />
-            </div>
-
-            {/* Name + meta */}
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 truncate leading-snug">
-                {client.name}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span
-                  className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                    isFund ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'
-                  }`}
+            return (
+              <>
+                <tr
+                  key={client.id}
+                  onClick={() => setExpandedId(isExpanded ? null : client.id)}
+                  className="cursor-pointer hover:bg-blue-50 transition-colors"
                 >
-                  {isFund ? <TrendingUp className="h-2.5 w-2.5" /> : <Building2 className="h-2.5 w-2.5" />}
-                  {client.type}
-                </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PRIORITY_BADGE[client.priority]}`}>
-                  {client.priority}
-                </span>
-                {client.coverage && (
-                  <span className="text-[10px] text-slate-400 truncate max-w-[80px]">
-                    {client.coverage}
-                  </span>
+                  {/* Expand chevron */}
+                  <td className="px-3 py-2.5 text-slate-400">
+                    {isExpanded
+                      ? <ChevronDown className="h-3.5 w-3.5" />
+                      : <ChevronRight className="h-3.5 w-3.5" />}
+                  </td>
+
+                  {/* Name */}
+                  <td className="px-3 py-2.5">
+                    <span className="font-medium text-slate-800">{client.name}</span>
+                  </td>
+
+                  {/* Type */}
+                  <td className="px-3 py-2.5">
+                    <span
+                      className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        isFund ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'
+                      }`}
+                    >
+                      {isFund ? <TrendingUp className="h-2.5 w-2.5" /> : <Building2 className="h-2.5 w-2.5" />}
+                      {client.type}
+                    </span>
+                  </td>
+
+                  {/* City */}
+                  <td className="px-3 py-2.5 text-slate-600 text-[13px]">
+                    {client.city}{client.country ? `, ${client.country}` : ''}
+                  </td>
+
+                  {/* Priority */}
+                  <td className="px-3 py-2.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PRIORITY_BADGE[client.priority]}`}>
+                      {client.priority}
+                    </span>
+                  </td>
+
+                  {/* Last Met */}
+                  <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">
+                    {formatLastMet(client.lastMet)}
+                  </td>
+
+                  {/* Coverage */}
+                  <td className="px-3 py-2.5 text-[12px] text-slate-500">
+                    {client.coverage || <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* Met Today */}
+                      <button
+                        onClick={(e) => handleMetToday(client, e)}
+                        disabled={isMetLoading}
+                        title="Mark as met today"
+                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md font-medium border transition-colors ${
+                          isMetSuccess
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
+                        } disabled:opacity-50`}
+                      >
+                        {isMetLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : isMetSuccess ? (
+                          <Check className="h-3 w-3" />
+                        ) : (
+                          <CalendarCheck className="h-3 w-3" />
+                        )}
+                        {isMetSuccess ? 'Saved' : 'Met Today'}
+                      </button>
+
+                      {/* Google Search */}
+                      <button
+                        onClick={(e) => handleGoogleSearch(client, e)}
+                        title={`Search "${client.name}" on Google`}
+                        className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors"
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Expanded detail row */}
+                {isExpanded && (
+                  <tr key={`${client.id}-detail`} className="bg-blue-50/40">
+                    <td />
+                    <td colSpan={7} className="px-3 py-3">
+                      <div className="flex flex-wrap gap-4 text-[12px] text-slate-600">
+                        {(client.address || client.city) && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400">Address:</span>
+                            <span>{client.address || `${client.city}, ${client.country}`}</span>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                                client.address || `${client.name}, ${client.city}, ${client.country}`,
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Maps
+                            </a>
+                          </div>
+                        )}
+                        {client.notes && (
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-slate-400 shrink-0">Notes:</span>
+                            <span>{client.notes}</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 )}
-              </div>
-              <div className="flex items-center gap-1 mt-0.5 min-w-0">
-                <p
-                  className={`text-[10px] truncate ${client.address ? 'text-slate-500' : 'text-slate-400'}`}
-                  title={client.address || `${client.city}, ${client.country}`}
-                >
-                  {client.address || `${client.city}, ${client.country}`}
-                </p>
-                <button
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    const query = client.address || `${client.name}, ${client.city}, ${client.country}`;
-                    window.open(
-                      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
-                      '_blank',
-                      'noopener,noreferrer',
-                    );
-                  }}
-                  title="Open in Google Maps"
-                  className="text-slate-300 hover:text-blue-500 transition-colors shrink-0"
-                >
-                  <ExternalLink className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Last Met */}
-            <div className="text-[10px] text-slate-400 pt-0.5 whitespace-nowrap">
-              {formatLastMet(client.lastMet)}
-            </div>
-
-            {/* Distance */}
-            <div className="text-[10px] text-slate-400 pt-0.5 whitespace-nowrap text-right">
-              {client.distance != null ? `${Math.round(client.distance)}km` : '—'}
-            </div>
-          </button>
-        );
-      })}
+              </>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

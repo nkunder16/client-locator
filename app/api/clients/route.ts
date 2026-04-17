@@ -4,19 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Client, RawClient, Priority } from '@/lib/types';
-
-// ── In-memory cache ──────────────────────────────────────────────────────────
-interface CacheEntry<T> { data: T; ts: number }
-const memCache = new Map<string, CacheEntry<unknown>>();
-
-function getCache<T>(key: string, ttlMs: number): T | null {
-  const e = memCache.get(key) as CacheEntry<T> | undefined;
-  if (!e || Date.now() - e.ts > ttlMs) return null;
-  return e.data;
-}
-function setCache<T>(key: string, data: T) {
-  memCache.set(key, { data, ts: Date.now() });
-}
+import { getCache, setCache } from '@/lib/cache';
 
 // ── Persistent geocode cache (/tmp survives warm serverless restarts) ─────────
 const GEO_CACHE_FILE = path.join(os.tmpdir(), 'cl-geocode-cache.json');
@@ -60,11 +48,6 @@ async function geocodeWithOpenCage(query: string, apiKey: string): Promise<[numb
   return null;
 }
 
-/**
- * Geocode any free-text query (address OR "city, country").
- * Prefers Google Maps API; falls back to OpenCage; returns null if neither is configured.
- * Results are cached in memory + disk for 30 days to avoid duplicate API calls.
- */
 async function geocodeQuery(
   query: string,
   cacheKey: string,
@@ -103,31 +86,33 @@ function parsePriority(val?: string): Priority {
 
 function parseDate(val?: string): string | null {
   if (!val?.trim()) return null;
-  const d = new Date(val.trim());
+  const trimmed = val.trim();
+  // DD-MM-YYYY (primary format used by this app)
+  const ddmm = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (ddmm) {
+    const d = new Date(+ddmm[3], +ddmm[2] - 1, +ddmm[1]);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  // Fallback: ISO or other formats the JS Date constructor understands
+  const d = new Date(trimmed);
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
-/**
- * Parse precomputed Latitude + Longitude columns from the sheet.
- * Returns [lng, lat] (Mapbox convention) or null if values are absent / invalid.
- */
 function parseCoords(lat?: string, lng?: string): [number, number] | null {
   const la = parseFloat(lat ?? '');
   const lo = parseFloat(lng ?? '');
   if (isFinite(la) && isFinite(lo) && la >= -90 && la <= 90 && lo >= -180 && lo <= 180) {
-    return [lo, la]; // Mapbox expects [lng, lat]
+    return [lo, la];
   }
   return null;
 }
 
-/** Cache key for a row: address-level when address present, city-level otherwise. */
 function rowCacheKey(address: string, city: string, country: string): string {
   return address
     ? `addr:${address.toLowerCase()}`
     : `city:${city.toLowerCase()}:${country.toLowerCase()}`;
 }
 
-/** Geocoding query string for a row. */
 function rowGeoQuery(address: string, city: string, country: string): string {
   return address || `${city}, ${country}`;
 }
@@ -170,8 +155,6 @@ export async function GET(req: Request) {
       transformHeader: (h: string) => h.trim().toLowerCase(),
     });
 
-    // Build a deduplicated map of cacheKey → geoQuery.
-    // Rows that already have Latitude + Longitude are skipped entirely — zero API calls.
     const geoTasks = new Map<string, string>();
     for (const row of rows as RawClient[]) {
       if (parseCoords(row.latitude, row.longitude)) continue;
@@ -184,7 +167,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // Geocode all unique tasks in parallel batches of 5
     const geoMap = new Map<string, [number, number] | null>();
     const taskEntries = Array.from(geoTasks.entries());
 
@@ -219,7 +201,6 @@ export async function GET(req: Request) {
           priority: parsePriority(row.priority),
           lastMet: parseDate(rawLastMet),
           coverage: row.coverage?.trim() ?? '',
-          // Precomputed coords take priority; fall back to geocoded result
           coordinates: parseCoords(row.latitude, row.longitude) ?? geoMap.get(key) ?? null,
         };
       })

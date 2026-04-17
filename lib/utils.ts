@@ -24,9 +24,13 @@ export function smartSort(clients: Client[]): Client[] {
     // 1. Priority: High first
     const pd = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (pd !== 0) return pd;
-    // 2. Distance: closer first
-    const dd = (a.distance ?? Infinity) - (b.distance ?? Infinity);
-    if (dd !== 0) return dd;
+    // 2. Distance: closer first (skip when neither has a distance — avoids NaN from Infinity-Infinity)
+    const aD = a.distance ?? Infinity;
+    const bD = b.distance ?? Infinity;
+    if (aD !== Infinity || bD !== Infinity) {
+      const dd = aD - bD;
+      if (dd !== 0) return dd;
+    }
     // 3. Last Met: oldest first (nulls = never met → highest urgency → sort first)
     if (!a.lastMet && !b.lastMet) return 0;
     if (!a.lastMet) return -1;
@@ -42,7 +46,29 @@ export function formatLastMet(iso: string | null): string {
   if (days === 1) return 'Yesterday';
   if (days < 30) return `${days}d ago`;
   if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${Math.floor(days / 365)}yr ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+/** Parse a DD-MM-YYYY string into a JS Date. Returns null if invalid. */
+export function parseDDMMYYYY(val: string): Date | null {
+  const m = val.trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (!m) return null;
+  const d = new Date(+m[3], +m[2] - 1, +m[1]);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Return today's date in DD-MM-YYYY format. */
+export function todayDDMMYYYY(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
+
+/** Convert an ISO date string (YYYY-MM-DD) to DD-MM-YYYY. */
+export function isoToDDMMYYYY(iso: string): string {
+  const [y, m, day] = iso.split('-');
+  return `${day}-${m}-${y}`;
 }
 
 export function meetingPlanScore(client: Client): number {
