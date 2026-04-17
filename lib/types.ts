@@ -7,6 +7,8 @@ export interface RawClient {
   city: string;
   country: string;
   address?: string;
+  latitude?: string;
+  longitude?: string;
   notes?: string;
   priority?: string;
   'last met'?: string; // PapaParse lowercases headers with spaces

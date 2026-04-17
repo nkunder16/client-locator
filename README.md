@@ -44,18 +44,21 @@ cp .env.local.example .env.local
 
 Make a Google Sheet with these **exact column headers** in row 1:
 
-| Name | Type | City | Country | Address | Priority | Last Met | Coverage | Notes |
-|---|---|---|---|---|---|---|---|---|
-| Sequoia Capital | Fund | Menlo Park | United States | 2800 Sand Hill Rd, Menlo Park, CA | High | 2025-11-01 | Jane Smith | Tiger cub |
-| Goldman Sachs | Company | New York | United States | 200 West St, New York, NY 10282 | Medium | 2025-06-15 | John Doe | BB coverage |
-| Vanguard | Fund | Malvern | United States | | Low | | | Index fund |
+| Name | Type | City | Country | Latitude | Longitude | Address | Priority | Last Met | Coverage | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Sequoia Capital | Fund | Menlo Park | United States | 37.4185 | -122.1420 | 2800 Sand Hill Rd, Menlo Park, CA | High | 2025-11-01 | Jane Smith | Tiger cub |
+| Goldman Sachs | Company | New York | United States | 40.7143 | -74.0133 | 200 West St, New York, NY | Medium | 2025-06-15 | John Doe | |
+| Vanguard | Fund | Malvern | United States | | | | Low | | | Index fund |
 
 Column rules:
 - **Type**: exactly `Fund` or `Company` (case-sensitive)
-- **Address** *(optional)*: full street address. When present, geocoding uses this for pin-point accuracy instead of City + Country. Leave blank for city-level precision.
+- **Latitude / Longitude** *(optional)*: decimal degrees. When both are present the app uses them directly — **zero geocoding API calls**. Leave blank to fall back to Address or City + Country geocoding.
+- **Address** *(optional)*: full street address. Used for geocoding when Lat/Lng are absent; also shown in the map popup and list with a Google Maps link.
 - **Priority**: `High`, `Medium`, or `Low` (defaults to `Low` if blank)
 - **Last Met**: any date format — `YYYY-MM-DD`, `DD/MM/YYYY`, `Nov 1 2025`, etc.
 - **Coverage**, **Notes**: free text, optional
+
+> **Zero-cost workflow**: populate Latitude + Longitude for every row (e.g. via a `GOOGLEGEOCODER` formula or a one-off geocoding script) and the app runs with **no geocoding API keys required** — instant map rendering from static data.
 
 ### Google Maps API key (for address geocoding)
 

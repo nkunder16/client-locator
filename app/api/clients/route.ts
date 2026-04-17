@@ -107,6 +107,19 @@ function parseDate(val?: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+/**
+ * Parse precomputed Latitude + Longitude columns from the sheet.
+ * Returns [lng, lat] (Mapbox convention) or null if values are absent / invalid.
+ */
+function parseCoords(lat?: string, lng?: string): [number, number] | null {
+  const la = parseFloat(lat ?? '');
+  const lo = parseFloat(lng ?? '');
+  if (isFinite(la) && isFinite(lo) && la >= -90 && la <= 90 && lo >= -180 && lo <= 180) {
+    return [lo, la]; // Mapbox expects [lng, lat]
+  }
+  return null;
+}
+
 /** Cache key for a row: address-level when address present, city-level otherwise. */
 function rowCacheKey(address: string, city: string, country: string): string {
   return address
@@ -157,9 +170,11 @@ export async function GET(req: Request) {
       transformHeader: (h: string) => h.trim().toLowerCase(),
     });
 
-    // Build a deduplicated map of cacheKey → geoQuery
+    // Build a deduplicated map of cacheKey → geoQuery.
+    // Rows that already have Latitude + Longitude are skipped entirely — zero API calls.
     const geoTasks = new Map<string, string>();
     for (const row of rows as RawClient[]) {
+      if (parseCoords(row.latitude, row.longitude)) continue;
       const address = row.address?.trim() ?? '';
       const city = row.city?.trim() ?? '';
       const country = row.country?.trim() ?? '';
@@ -204,7 +219,8 @@ export async function GET(req: Request) {
           priority: parsePriority(row.priority),
           lastMet: parseDate(rawLastMet),
           coverage: row.coverage?.trim() ?? '',
-          coordinates: geoMap.get(key) ?? null,
+          // Precomputed coords take priority; fall back to geocoded result
+          coordinates: parseCoords(row.latitude, row.longitude) ?? geoMap.get(key) ?? null,
         };
       })
       .filter((c: Client) => c.name);
