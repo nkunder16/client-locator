@@ -2,33 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body,
-#__next {
-  height: 100%;
-}
-
-/* Mapbox popup custom styles */
+/* Mapbox popup overrides */
 .mapboxgl-popup-content {
   padding: 0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15) !important;
-  min-width: 200px;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
 }
 
 .mapboxgl-popup-close-button {
-  font-size: 18px !important;
-  color: #64748b !important;
-  padding: 4px 8px !important;
+  font-size: 16px !important;
+  color: #94a3b8 !important;
+  padding: 6px 8px !important;
+  line-height: 1 !important;
 }
 
 .mapboxgl-popup-close-button:hover {
-  background: #f1f5f9 !important;
-  border-radius: 4px !important;
-}
-
-.mapboxgl-ctrl-group {
-  border-radius: 8px !important;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  color: #475569 !important;
+  background: transparent !important;
 }

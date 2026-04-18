@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Client Location Intelligence',
-  description: 'Investment banking client locator — find funds and companies by geography',
+  title: 'Location Plotter',
+  description: 'Plot hospitals and clinics on a map for market analysis',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
